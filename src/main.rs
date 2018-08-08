@@ -25,3 +25,45 @@ pub enum Kinds {
     Star,
     Bawx,
 }
+
+impl Sym {
+    fn alphaRename(&self, set: &HashSet<&Sym>) -> Self {
+        let Sym(var) = *self;
+        let mut var = var;
+        while set.contains(&Sym(var)) {
+            var += "'";
+        }
+        Sym(var)
+    }
+}
+
+impl Expr {
+    // y u no nice and concise, rust?
+    fn free_vars(&self) -> HashSet<&Sym> {
+        use Expr::*;
+        match *self {
+            Var(s) => [s].iter().collect(),
+            App(f, a) => f.free_vars().union(&a.free_vars()).cloned().collect(),
+            Lam(i, t, e) => t
+                .free_vars()
+                .union(
+                    &e.free_vars()
+                        .difference(&[i].iter().collect())
+                        .cloned()
+                        .collect(),
+                )
+                .cloned()
+                .collect(),
+            Pi(i, k, t) => k
+                .free_vars()
+                .union(
+                    &t.free_vars()
+                        .difference(&[i].iter().collect())
+                        .cloned()
+                        .collect(),
+                )
+                .cloned()
+                .collect(),
+            Kind(_) => HashSet::new(),
+        }
+    }
