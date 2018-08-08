@@ -67,3 +67,30 @@ impl Expr {
             Kind(_) => HashSet::new(),
         }
     }
+
+    fn subst(&self, v: Sym, x: Self) -> Self {
+        use Expr::*;
+        match *self {
+            Var(i) => if i == v {
+                x
+            } else {
+                Var(i)
+            },
+            App(f, a) => App(Box::new(f.subst(v, x)), Box::new(a.subst(v, x))),
+            Lam(i, t, e) => if v == i {
+                Lam(i, Box::new(t.subst(v, x)), e)
+            } else {
+                if x.free_vars().contains(&i) {
+                    let u: HashSet<_> = x.free_vars().union(&e.free_vars()).cloned().collect();
+                    let ii = i.alphaRename(&u);
+                    // TODO: Fix this thing. Needs to be an environment with a substituted variable
+                    // let ee = e.subst(i, Var(ii), e);
+                    Lam(ii, t.subst(v, x), Box::new(ee))
+                }
+            },
+        }
+    }
+}
+
+//substVar :: Sym -> Sym -> Expr -> Expr
+// substVar s s' e = subst s (Var s') e
