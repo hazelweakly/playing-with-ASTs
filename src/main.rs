@@ -38,26 +38,26 @@ impl Sym {
 
 impl Expr {
     // y u no nice and concise, rust?
-    fn free_vars(&self) -> HashSet<&Sym> {
+    pub fn free_vars(&self) -> HashSet<&Sym> {
         use Expr::*;
         match *self {
-            Var(s) => [s].iter().collect(),
-            App(f, a) => f.free_vars().union(&a.free_vars()).cloned().collect(),
-            Lam(i, t, e) => t
+            Var(ref s) => [s].iter().map(|&s| s).collect(),
+            App(ref f, ref a) => f.free_vars().union(&a.free_vars()).cloned().collect(),
+            Lam(ref i, ref t, ref e) => t
                 .free_vars()
                 .union(
                     &e.free_vars()
-                        .difference(&[i].iter().collect())
+                        .difference(&[i].iter().map(|&i| i).collect())
                         .cloned()
                         .collect(),
                 )
                 .cloned()
                 .collect(),
-            Pi(i, k, t) => k
+            Pi(ref i, ref k, ref t) => k
                 .free_vars()
                 .union(
                     &t.free_vars()
-                        .difference(&[i].iter().collect())
+                        .difference(&[i].iter().map(|&i| i).collect())
                         .cloned()
                         .collect(),
                 )
