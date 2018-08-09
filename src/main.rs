@@ -107,7 +107,25 @@ impl Expr {
             Kind(k) => Kind(k),
         }
     }
+
+    pub fn nf(self) -> Self {
+        use Expr::*;
+        fn spine(ee: Expr, es: &[Expr]) -> Expr {
+            match (ee, es) {
+                (App(f, a), _) => spine(*f, &[&[*a], es].concat()),
+                (Lam(s, t, e), []) => Lam(s, Box::new(t.nf()), Box::new(e.nf())),
+                (Lam(s, _, e), es) => spine(es[0].clone().subst(&s, &e), &es[1..]),
+                (f, es) => es
+                    .iter()
+                    .map(|e| e.clone().nf())
+                    .fold(f, |f, a| App(Box::new(f), Box::new(a.clone()))),
+            }
+        }
+
+        spine(self, &[])
+    }
 }
 
-//substVar :: Sym -> Sym -> Expr -> Expr
-// substVar s s' e = subst s (Var s') e
+fn main() {
+    println!("Hello");
+}
