@@ -9,7 +9,7 @@ use std::collections::HashSet;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Sym(String);
 
-type Type = Expr;
+// type Type = Expr;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expr {
@@ -27,13 +27,12 @@ pub enum Kinds {
 }
 
 impl Sym {
-    fn alphaRename(&self, set: &HashSet<&Sym>) -> Self {
-        let Sym(var) = *self;
-        let mut var = var;
-        while set.contains(&Sym(var)) {
-            var += "'";
+    fn alpha_rename(&self, set: &HashSet<&Sym>) -> Self {
+        if set.contains(self) {
+            Sym(format!("{}'", self.0)).alpha_rename(set)
+        } else {
+            self.clone()
         }
-        Sym(var)
     }
 }
 
