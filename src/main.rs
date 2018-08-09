@@ -67,26 +67,44 @@ impl Expr {
         }
     }
 
-    fn subst(&self, v: Sym, x: Self) -> Self {
+    pub fn subst(self, v: &Sym, x: &Self) -> Self {
         use Expr::*;
-        match *self {
-            Var(i) => if i == v {
-                x
+        match self {
+            Var(i) => if i == *v {
+                x.clone()
             } else {
                 Var(i)
             },
             App(f, a) => App(Box::new(f.subst(v, x)), Box::new(a.subst(v, x))),
-            Lam(i, t, e) => if v == i {
+            Lam(i, t, e) => if i == *v {
                 Lam(i, Box::new(t.subst(v, x)), e)
             } else {
                 if x.free_vars().contains(&i) {
-                    let u: HashSet<_> = x.free_vars().union(&e.free_vars()).cloned().collect();
-                    let ii = i.alphaRename(&u);
-                    // TODO: Fix this thing. Needs to be an environment with a substituted variable
-                    // let ee = e.subst(i, Var(ii), e);
-                    Lam(ii, t.subst(v, x), Box::new(ee))
+                    let i = i.alpha_rename(&x.free_vars().union(&e.free_vars()).cloned().collect());
+                    Lam(
+                        i.clone(),
+                        Box::new(t.subst(v, x)),
+                        Box::new(e.subst(&i.clone(), &Var(i))),
+                    )
+                } else {
+                    Lam(i.clone(), Box::new(t.subst(v, x)), Box::new(e.subst(v, x)))
                 }
             },
+            Pi(i, t, e) => if i == *v {
+                Pi(i, Box::new(t.subst(v, x)), e)
+            } else {
+                if x.free_vars().contains(&i) {
+                    let i = i.alpha_rename(&x.free_vars().union(&e.free_vars()).cloned().collect());
+                    Pi(
+                        i.clone(),
+                        Box::new(t.subst(v, x)),
+                        Box::new(e.subst(&i.clone(), &Var(i))),
+                    )
+                } else {
+                    Pi(i.clone(), Box::new(t.subst(v, x)), Box::new(e.subst(v, x)))
+                }
+            },
+            Kind(k) => Kind(k),
         }
     }
 }
