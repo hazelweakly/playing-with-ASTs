@@ -124,6 +124,22 @@ impl Expr {
 
         spine(self, &[])
     }
+
+    pub fn alpha_eq(self, v: Self) -> bool {
+        use Expr::*;
+        match (self, v) {
+            (Var(f), Var(ff)) => f == ff,
+            (App(f, a), App(ff, aa)) => f.alpha_eq(*ff) && a.alpha_eq(*aa),
+            (Lam(s, _, e), Lam(ss, _, ee)) => e.alpha_eq(Var(s).subst(&ss, &*ee)),
+            (Pi(s, _, e), Pi(ss, _, ee)) => e.alpha_eq(Var(s).subst(&ss, &*ee)),
+            (Kind(k), Kind(kk)) => k == kk,
+            (_, _) => false,
+        }
+    }
+
+    pub fn beta_eq(self, v: Self) -> bool {
+        self.nf().alpha_eq(v.nf())
+    }
 }
 
 fn main() {
