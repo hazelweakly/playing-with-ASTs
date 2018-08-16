@@ -1,14 +1,19 @@
 // This crate is inspired by
 // http://augustss.blogspot.com/2007/10/simpler-easier-in-recent-paper-simply.html
 //
-// Minor implementation details suggested by:
+// Minor rust-specific implementation details suggested by:
 // https://gist.github.com/AndyShiue/55198c5a0137b62eb3d5
+
 #[macro_use]
 extern crate lazy_static;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
+
+//
+// Types
+//
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Sym(String);
@@ -17,6 +22,37 @@ type Type = Expr;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Env(HashMap<Sym, Type>);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Expr {
+    Var(Sym),
+    App(Box<Expr>, Box<Expr>),
+    Lam(Sym, Box<Type>, Box<Expr>),
+    Pi(Sym, Box<Type>, Box<Type>),
+    Kind(Kinds),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Kinds {
+    Star,
+    Bawx,
+}
+
+lazy_static! {
+    static ref allowedKinds: Vec<(Type, Type)> = [
+        (Expr::Kind(Kinds::Star), Expr::Kind(Kinds::Star)),
+        (Expr::Kind(Kinds::Star), Expr::Kind(Kinds::Bawx)),
+        (Expr::Kind(Kinds::Bawx), Expr::Kind(Kinds::Star)),
+        (Expr::Kind(Kinds::Bawx), Expr::Kind(Kinds::Bawx)),
+    ]
+        .iter()
+        .cloned()
+        .collect();
+}
+
+//
+// Impls
+//
 
 impl Env {
     fn find_var(self, s: Sym) -> Result<Type, String> {
@@ -44,30 +80,16 @@ impl Env {
             Var(s) => self.find_var(s),
             App(f, a) => {
                 let tf = self.clone().t_check_red(*f.clone())?;
-                println!("tf: {:?}", tf.clone());
                 match tf {
                     Pi(ref x, ref at, ref rt) => {
                         let ta = self.t_check(*a.clone())?;
-                        println!(
-                            "\nx: {:?}\nta: {:?}\nat: {:?}\nrt: {:?}",
-                            x,
-                            ta.clone(),
-                            at.clone(),
-                            rt.clone()
-                        );
                         if !ta.beta_eq(*at.clone()) {
                             Err("Bad function argument type".to_string())
                         } else {
-                            println!("subst: {:?}", a.clone().subst(&x.clone(), &*rt.clone()));
                             Ok(a.subst(&x, &*rt))
                         }
                     }
-                    _ => {
-                        // app needs a function
-                        // functions are Pi types
-                        println!("{:?} {:?}", f, a);
-                        Err("Non-function in application".to_string())
-                    }
+                    _ => Err("Non-function in application".to_string()),
                 }
             }
             Lam(s, t, e) => {
@@ -91,42 +113,16 @@ impl Env {
             // inconsistent in a meaningless way if your language is already turing complete.
             // (eg you're not losing anything you already gave up)
             Kind(Star) => Ok(Kind(Bawx)),
-            // Change Bawx match to Kinds::Bawx to have kind in kind
+            // Bawx : Bawx means an inconsistent logic, but who gives a damn in the presence of
+            // non-terminism? There are worse gods than this. Interestingly, this is slightly
+            // differnt than Type : Type but morally the same.
             Kind(Bawx) => Ok(Kind(Bawx)),
-            // Kind(Kinds::Bawx) => Err("Found a box".to_string()),
         }
     }
 
     pub fn type_check(e: Expr) -> Result<Type, String> {
         Env(HashMap::new()).t_check(e)
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Expr {
-    Var(Sym),
-    App(Box<Expr>, Box<Expr>),
-    Lam(Sym, Box<Type>, Box<Expr>),
-    Pi(Sym, Box<Type>, Box<Type>),
-    Kind(Kinds),
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Kinds {
-    Star,
-    Bawx,
-}
-
-lazy_static! {
-    static ref allowedKinds: Vec<(Type, Type)> = [
-        (Expr::Kind(Kinds::Star), Expr::Kind(Kinds::Star)),
-        (Expr::Kind(Kinds::Star), Expr::Kind(Kinds::Bawx)),
-        (Expr::Kind(Kinds::Bawx), Expr::Kind(Kinds::Star)),
-        (Expr::Kind(Kinds::Bawx), Expr::Kind(Kinds::Bawx)),
-    ]
-        .iter()
-        .cloned()
-        .collect();
 }
 
 impl Sym {
@@ -169,8 +165,27 @@ impl fmt::Display for Sym {
     }
 }
 
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Expr::*;
+        use Kinds::*;
+        fn pprint(e: &Expr) -> String {
+            match e {
+                Var(v) => v.to_string(),
+                App(f, a) => format!("({} {})", pprint(&*f), pprint(&*a)),
+                Lam(s, t, e) => format!("λ{}:{} {}", s, pprint(&*t), pprint(&*e)),
+                Pi(s, k, t) => format!("Π({}:{} → {})", s, pprint(&*k), pprint(&*t)),
+                Kind(k) => match k {
+                    Star => "★".to_string(),
+                    Bawx => "□".to_string(),
+                },
+            }
+        };
+        write!(f, "{}", pprint(self))
+    }
+}
+
 impl Expr {
-    // y u no nice and concise, rust?
     pub fn free_vars(&self) -> HashSet<&Sym> {
         use Expr::*;
         match *self {
@@ -206,33 +221,25 @@ impl Expr {
             } else {
                 Var(i)
             },
-            App(f, a) => App(Box::new(f.subst(v, x)), Box::new(a.subst(v, x))),
+            App(f, a) => app(f.subst(v, x), a.subst(v, x)),
             Lam(s, t, e) => if s == *v {
-                Lam(s, Box::new(t.subst(v, x)), e)
+                lam(s, t.subst(v, x), *e)
             } else {
                 if x.free_vars().contains(&s) {
                     let i = s.alpha_rename(&x.free_vars().union(&e.free_vars()).cloned().collect());
-                    Lam(
-                        i.clone(),
-                        Box::new(t.subst(v, x)),
-                        Box::new(e.subst(&i.clone(), &Var(i))),
-                    )
+                    lam(i.clone(), t.subst(v, x), e.subst(&i.clone(), &var(i)))
                 } else {
-                    Lam(s.clone(), Box::new(t.subst(v, x)), Box::new(e.subst(v, x)))
+                    lam(s.clone(), t.subst(v, x), e.subst(v, x))
                 }
             },
             Pi(s, k, t) => if s == *v {
-                Pi(s, Box::new(k.subst(v, x)), t)
+                pi(s, k.subst(v, x), *t)
             } else {
                 if x.free_vars().contains(&s) {
                     let i = s.alpha_rename(&x.free_vars().union(&t.free_vars()).cloned().collect());
-                    Pi(
-                        i.clone(),
-                        Box::new(k.subst(v, x)),
-                        Box::new(t.subst(&i.clone(), &Var(i))),
-                    )
+                    pi(i.clone(), k.subst(v, x), t.subst(&i.clone(), &var(i)))
                 } else {
-                    Pi(s.clone(), Box::new(k.subst(v, x)), Box::new(t.subst(v, x)))
+                    pi(s.clone(), k.subst(v, x), t.subst(v, x))
                 }
             },
             Kind(k) => Kind(k),
@@ -273,11 +280,6 @@ impl Expr {
                 (Pi(ref s, _, ref t), _) if !es.is_empty() => {
                     spine(t.clone().subst(&s, &es[0]), &es[1..])
                 }
-                // (Pi(ref s, ref k, ref t), _) if !es.is_empty() => es
-                //     .iter()
-                //     .fold(pi(s.clone(), k.clone().whnf(), t.clone().whnf()), |f, a| {
-                //         app(f, a.clone())
-                //     }),
                 (f, es) => es.iter().fold(f, |f, a| app(f, a.clone())),
             }
         }
@@ -302,12 +304,16 @@ impl Expr {
     }
 }
 
-// Convenience functions for HOAS representation of the LC.
+//
+// Convenience functions
+//
 pub fn app(e: Expr, a: Expr) -> Expr {
     Expr::App(Box::new(e), Box::new(a))
 }
 
 // Specalization of pi to A -> B
+// A -> B is equivalent to Pi (x:a) b where x is not free in b
+// (which seems to mean that x is nowhere to be found in b...)
 pub fn arr(a: Expr, b: Expr) -> Expr {
     pi([a.to_string(), "₀".to_string()].concat(), a, b)
 }
@@ -332,33 +338,12 @@ pub fn bawx() -> Expr {
     Expr::Kind(Kinds::Bawx)
 }
 
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Expr::*;
-        use Kinds::*;
-        fn pprint(e: &Expr) -> String {
-            match e {
-                Var(v) => v.to_string(),
-                App(f, a) => format!("({} {})", pprint(&*f), pprint(&*a)),
-                Lam(s, t, e) => format!("λ{}:{} {}", s, pprint(&*t), pprint(&*e)),
-                Pi(s, k, t) => format!("Π({}:{} → {})", s, pprint(&*k), pprint(&*t)),
-                Kind(k) => match k {
-                    Star => "★".to_string(),
-                    Bawx => "□".to_string(),
-                },
-            }
-        };
-        write!(f, "{}", pprint(self))
-    }
-}
-
-// Test functions shamelessly stolen from the gist and adapted to work with the more advanced type
-// system implemented here.
+// Test functions; some shamelessly stolen from the gist and adapted to work with the more advanced type
+// system implemented here. Others nicked from papers and blog posts on dependently typed LCs.
 //
 // Here just to have something to quickly give a sanity check that I didn't screw up too badly
 // id : forall a.a -> a        <-- polymorphic version
 // id = \(a:*) -> \(x:a) -> x  <-- dependently typed version
-
 fn id() -> Expr {
     lam("a", star(), lam("x", var("a"), var("x")))
 }
@@ -383,47 +368,6 @@ fn konst() -> Expr {
 
 fn id_coc() -> Expr {
     lam("a", star(), lam("p", pi("p", var("a"), star()), var("p")))
-}
-
-// (.) :: (b -> c) -> (a -> b) -> a -> c
-// \ b:* -> \c:* ->
-// \x -> \y -> \z xz yz
-// \ x : (b -> c) -> \ y : (a -> b) -> \z:* -> app x (app z y)
-// \f : B->C. \g: A->B. \x: A.f (g x)
-// forall a:*, forall b:* forall c:*. (b-c) -> (a-b) -> a -> c
-fn composition() -> Expr {
-    // lam( "a", star(),
-    //     lam( "b", star(),
-    //         lam( "c", star(),
-    //             lam( "f", arr(var("b"), var("c")),
-    //                 lam( "g", arr(var("a"), var("b")),
-    //                     lam("x", var("a"), app(var("f"), app(var("g"), var("x")))),
-    //                 ),
-    //             ),
-    //         ),
-    //     ),
-    // )
-    lam(
-        "a",
-        star(),
-        lam(
-            "b",
-            star(),
-            lam(
-                "c",
-                star(),
-                lam(
-                    "f",
-                    arr(var("b"), var("c")),
-                    lam(
-                        "g",
-                        arr(var("a"), var("b")),
-                        lam("y", var("a"), app(var("f"), app(var("g"), var("y")))),
-                    ),
-                ),
-            ),
-        ),
-    )
 }
 
 fn simple_subst() -> bool {
@@ -465,6 +409,10 @@ fn three() -> Expr {
     )
 }
 
+fn app2(f: Expr, x: Expr, y: Expr) -> Expr {
+    app(app(f, x), y)
+}
+
 fn plus() -> Expr {
     lam(
         "m",
@@ -480,10 +428,7 @@ fn plus() -> Expr {
                     star(),
                     app(
                         var("m"),
-                        app(
-                            app(var("m"), var("s")),
-                            app(app(var("n"), var("s")), var("z")),
-                        ),
+                        app2(var("m"), var("s"), app2(var("n"), var("s"), var("z"))),
                     ),
                 ),
             ),
@@ -495,7 +440,7 @@ fn main() {
     println!("{}", id().alpha_eq(id()));
     println!("{}", simple_subst());
 
-    println!("{}\n{}\n{}\n{}", id(), konst(), id_coc(), composition());
+    println!("{}\n{}\n{}", id(), konst(), id_coc());
 
     let s = Sym("this".to_string());
     let eq: Sym = "this".into();
@@ -512,12 +457,12 @@ fn main() {
     );
     println!("{}", lam("z'", star(), var("z")));
 
-    println!("comp: {:?}", Env::type_check(composition()));
     println!("id_t: {:?}", Env::type_check(id_t()));
     println!("id_t: {}", id_t());
 
     println!("{}", arr(var("a"), var("b")));
 
     println!("0: {}\n1: {}\n2: {}\n3: {}", zero(), one(), two(), three());
-    println!("2+2: {}", app(three(), app(plus(), two())).nf());
+    println!("2+1 == 3: {}", app2(plus(), one(), two()).beta_eq(three()));
+    println!("2+1 == 3: {}", app2(plus(), one(), two()).nf());
 }
