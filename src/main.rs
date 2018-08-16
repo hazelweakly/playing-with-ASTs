@@ -4,6 +4,8 @@
 // Minor rust-specific implementation details suggested by:
 // https://gist.github.com/AndyShiue/55198c5a0137b62eb3d5
 
+#![allow(unused)]
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -370,17 +372,6 @@ fn id_coc() -> Expr {
     lam("a", star(), lam("p", pi("p", var("a"), star()), var("p")))
 }
 
-fn simple_subst() -> bool {
-    let input = app(id(), var("y"));
-    let output = var("y");
-
-    (input.clone().whnf() == output) != (input == output)
-}
-
-fn should_rename() -> Expr {
-    app(lam("x", star(), lam("z", star(), var("z"))), var("z"))
-}
-
 fn zero() -> Expr {
     lam("s", star(), lam("z", star(), var("z")))
 }
@@ -409,6 +400,9 @@ fn three() -> Expr {
     )
 }
 
+// Defined solely because I was testing something in Augustss' blog post as a sanity check and
+// wanted to make sure I wasn't messing up the nested applications. I wasn't, there's a bug
+// elsewhere in my code.
 fn app2(f: Expr, x: Expr, y: Expr) -> Expr {
     app(app(f, x), y)
 }
@@ -436,33 +430,52 @@ fn plus() -> Expr {
     )
 }
 
-fn main() {
-    println!("{}", id().alpha_eq(id()));
-    println!("{}", simple_subst());
+#[test]
+fn alpha_eq_id() {
+    assert_eq!(id().alpha_eq(id_coc()), true);
+}
 
-    println!("{}\n{}\n{}", id(), konst(), id_coc());
+#[test]
+fn simple_subst() {
+    let input = app(id(), var("y"));
+    let output = var("y");
 
+    assert_eq!(input.clone().nf(), output);
+}
+
+#[test]
+fn should_rename() {
+    assert_eq!(
+        app(lam("x", star(), lam("z", star(), var("z"))), var("z")).whnf(),
+        lam("z'", star(), var("z"))
+    );
+}
+
+#[test]
+fn stringly_syntax() {
     let s = Sym("this".to_string());
     let eq: Sym = "this".into();
-    println!("{}", var(s).beta_eq(var(eq)));
+    assert!(var(s).beta_eq(var(eq)) == true);
+}
 
-    println!("id: {:?}", Env::type_check(id()));
-    println!("{:?}", Env::type_check(konst()));
-    println!("id_coc: {:?}", Env::type_check(id_coc()));
-
-    println!("{}", should_rename().whnf());
-    println!(
-        "{}",
-        app(lam("x", star(), lam("z", star(), var("z"))), var("z")).whnf()
-    );
-    println!("{}", lam("z'", star(), var("z")));
-
-    println!("id_t: {:?}", Env::type_check(id_t()));
-    println!("id_t: {}", id_t());
-
-    println!("{}", arr(var("a"), var("b")));
-
+// This is an obvious example of where a bug exists somewhere in my application
+#[test]
+fn addition_is_broken() {
     println!("0: {}\n1: {}\n2: {}\n3: {}", zero(), one(), two(), three());
-    println!("2+1 == 3: {}", app2(plus(), one(), two()).beta_eq(three()));
-    println!("2+1 == 3: {}", app2(plus(), one(), two()).nf());
+    println!("2+1 == 3");
+    assert!(app2(plus(), one(), two()).beta_eq(three()));
+    println!("2+1 == 3");
+    assert_eq!(app2(plus(), one(), two()).nf(), three());
+}
+
+fn main() {
+    println!("Demoing the pretty printing functionality:");
+    println!("{}\n{}\n{}", id(), konst(), id_coc());
+    println!("arr: {}", arr(var("a"), var("b")));
+
+    println!("Demoing the typechecking (which has a bug in it, probably?)");
+    println!("id: {:?}", Env::type_check(id()));
+    println!("id_t: {:?}", Env::type_check(id_t()));
+    println!("id_coc: {:?}", Env::type_check(id_coc()));
+    println!("konst: {:?}", Env::type_check(konst()));
 }
